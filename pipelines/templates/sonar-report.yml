@@ -1,0 +1,25 @@
+steps:
+- task: Bash@3
+  displayName: 'Download SonarCloud Report'
+  env:
+    SONAR_ORG: '$(sonarOrganization)'
+    SONAR_PROJECT_KEY: '$(sonarProjectKey)'
+    SONAR_TOKEN: $(SONAR_TOKEN)
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Create directory
+      mkdir -p "$(Build.ArtifactStagingDirectory)/sonar-report"
+      
+      # Fetch metrics from SonarCloud using basic auth
+      curl -u "${SONAR_TOKEN}:" \
+        "https://sonarcloud.io/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage" \
+        -o "$(Build.ArtifactStagingDirectory)/sonar-report/sonar-metrics.json"
+      
+      echo "Report saved"
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish SonarCloud Report Artifact'
+  inputs:
+    pathToPublish: '$(Build.ArtifactStagingDirectory)/sonar-report'
+    artifactName: 'sonarcloud-webapp-report'

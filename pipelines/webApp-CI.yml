@@ -1,0 +1,309 @@
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+    - release/*
+  paths:
+    include:
+    - Bratislava2024/NeuroMedia.API/**
+    - Bratislava2024/NeuroMedia.Application/**
+    - Bratislava2024/NeuroMedia.Domain/**
+    - Bratislava2024/NeuroMedia.Infrastructure/**
+    - Bratislava2024/NeuroMedia.Persistence/**
+    - Bratislava2024/NeuroMedia.Seed/**
+    - Bratislava2024/NeuroMedia.WebUI/**
+    - Bratislava2024/NeuroMedia.API.Tests/**
+    - Bratislava2024/NeuroMedia.Application.Tests/**
+    - Bratislava2024/NeuroMedia.Infrastructure.Tests/**
+    - Bratislava2024/NeuroMedia.Persistence.Tests/**
+    - Bratislava2024/NeuroMedia.WebUI.Tests/**
+    - Bratislava2024/azure-infrastructure/**
+    exclude:
+    - README.md
+    - docs/**
+
+pr:
+  branches:
+    include:
+    - main
+    - develop
+    - release/*
+  
+  drafts: false
+  
+  paths:
+    include:
+    - Bratislava2024/NeuroMedia.API/**
+    - Bratislava2024/NeuroMedia.Application/**
+    - Bratislava2024/NeuroMedia.Domain/**
+    - Bratislava2024/NeuroMedia.Infrastructure/**
+    - Bratislava2024/NeuroMedia.Persistence/**
+    - Bratislava2024/NeuroMedia.Seed/**
+    - Bratislava2024/NeuroMedia.WebUI/**
+    - Bratislava2024/NeuroMedia.API.Tests/**
+    - Bratislava2024/NeuroMedia.Application.Tests/**
+    - Bratislava2024/NeuroMedia.Infrastructure.Tests/**
+    - Bratislava2024/NeuroMedia.Persistence.Tests/**
+    - Bratislava2024/NeuroMedia.WebUI.Tests/**
+    - Bratislava2024/azure-infrastructure/**
+    exclude:
+    - README.md
+    - docs/**
+
+pool:
+  vmImage: 'ubuntu-latest' # use for Microsoft-hosted agents
+  # name: 'cervilog-agents' # use for self-hosted agents
+
+variables:
+  # Build configuration variables 
+  buildConfiguration: 'Release'
+  dotnetVersion: '8.x'
+  solutionPath: 'Bratislava2024/NeuroMedia.sln'
+
+  # Sonar Cloud configuration variables
+  sonarConnection: '$(SONAR_CONNECTION)'
+  sonarProjectKey: '$(SONAR_PROJECT_KEY)'
+  sonarProjectName: '$(SONAR_PROJECT_NAME)'
+  sonarOrganization: '$(SONAR_ORGANIZATION)'
+
+  # ACR configuration variables
+  acrLoginServer: '$(ACR_LOGIN_SERVER)'
+  acrUsername: '$(ACR_USERNAME)'
+  acrPassword: '$(ACR_PASSWORD)'
+  acrRepository: '$(ACR_REPOSITORY)'
+  acrRepositoryUI: '$(ACR_REPOSITORY_UI)'
+
+stages:
+- stage: Build
+  displayName: 'Build WebApp'
+  jobs:
+  - job: BuildWebApp
+    displayName: 'Build Web Application'
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Install .NET 8 SDK'
+      inputs:
+        packageType: 'sdk'
+        version: '$(dotnetVersion)'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore WebApp Solution'
+      inputs:
+        command: 'restore'
+        projects: '$(solutionPath)'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Build WebApp Solution'
+      inputs:
+        command: 'build'
+        projects: '$(solutionPath)'
+        arguments: '--configuration $(buildConfiguration) --no-restore'
+
+- stage: Test
+  displayName: 'Test WebApp - Quality and Security Analysis'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: UnitTestsAndSAST
+    displayName: 'Run Unit Tests and SAST'
+    steps:
+    # Full git history checkout is required for accurate SonarCloud SAST 
+    - checkout: self
+      fetchDepth: 0
+      clean: true
+
+    # Setup SonarCloud Environment
+    - task: UseDotNet@2
+      displayName: 'Install .NET 8 SDK'
+      inputs:
+        packageType: 'sdk'
+        version: '$(dotnetVersion)'
+
+    - task: SonarCloudPrepare@4
+      displayName: 'Prepare SonarCloud Analysis'
+      inputs:
+        SonarQube: '$(sonarConnection)'
+        organization: '$(sonarOrganization)'
+        scannerMode: 'dotnet'
+        projectKey: '$(sonarProjectKey)'
+        projectName: '$(sonarProjectName)'
+        projectVersion: '$(Build.BuildNumber)'
+        extraProperties: |
+          sonar.exclusions=**/bin/**,**/obj/**,**/*.g.cs,**/*.cshtml,**/*.config,**/*.log,**/*.Tests/**
+          sonar.coverage.exclusions=**/Tests/**,**/*Tests.csproj,**/Migrations/**
+          sonar.cs.vscoveragexml.reportsPaths=$(Agent.TempDirectory)/**/coverage.cobertura.xml
+
+    # Run Unit Tests with Code Coverage collection
+    - task: DotNetCoreCLI@2
+      displayName: 'Run Unit Tests'
+      inputs:
+        command: 'test'
+        projects: 'Bratislava2024/NeuroMedia.*.Tests/NeuroMedia.*.Tests.csproj'
+        arguments: '--configuration $(buildConfiguration) --logger trx --collect:"XPlat Code Coverage"'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Test Results' 
+      inputs:
+        testResultsFormat: 'VSTest'
+        testResultsFiles: '$(Agent.TempDirectory)/TestResults/**/*.trx'
+      condition: succeededOrFailed()
+
+    - task: PublishCodeCoverageResults@2
+      displayName: 'Publish Code Coverage'
+      inputs:
+        summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
+      condition: succeededOrFailed()
+
+    # Analyze and publish results to SonarCloud
+    - task: SonarCloudAnalyze@4
+      displayName: 'Run SonarCloud Analysis'
+      inputs:
+        jdkversion: 'JAVA_HOME_17_X64'
+
+    - task: SonarCloudPublish@4
+      displayName: 'Publish SonarCloud Results'
+      continueOnError: false
+      condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+      inputs:
+        pollingTimeoutSec: '300'
+
+    - template: templates/sonar-report.yml
+
+  - job: SCAandIaC
+    displayName: 'Software Composition Analysis and IaC Security Scan'
+    steps:
+      - checkout: self
+        clean: true
+        fetchDepth: 0
+
+      - task: DotNetCoreCLI@2
+        displayName: '.NET Vulnerable Packages Audit'
+        inputs:
+          command: 'custom'
+          projects: '$(Build.SourcesDirectory)/Bratislava2024/**/*.csproj'
+          custom: 'list'
+          arguments: 'package --vulnerable --include-transitive'
+        continueOnError: true # intentional — output is audit log only, Trivy enforces severity thresholds
+      
+      - task: trivy@2
+        displayName: 'Trivy SCA (.NET + IaC)'
+        inputs:
+          version: '0.69.3'
+          type: 'filesystem'
+          target: '$(Build.SourcesDirectory)/Bratislava2024'
+          scanners: 'vuln,misconfig,secret'
+          severities: 'LOW,MEDIUM,HIGH,CRITICAL'
+          failOnSeverityThreshold: 'HIGH'
+          reports: 'sarif'
+          publish: true
+
+
+      - task: trivy@2
+        displayName: 'Trivy IaC Scan - secrets, vulnerabilities and misconfigurations'
+        inputs:
+          version: '0.69.3'
+          type: 'filesystem'
+          target: '$(Build.SourcesDirectory)/azure-infrastructure'
+          scanners: 'secret,vuln,misconfig'
+          severities: 'LOW,MEDIUM,HIGH,CRITICAL'
+          failOnSeverityThreshold: 'HIGH'
+          reports: 'sarif'
+          publish: true
+
+- stage: Containerize
+  displayName: 'Build & Scan Docker Image'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: DockerBuildScan
+    displayName: 'Build and Scan Docker Image'
+    steps:
+    - script: |
+        echo "$(acrPassword)" | docker login $(acrLoginServer) \
+          --username $(acrUsername) \
+          --password-stdin
+      displayName: 'Login to ACR'
+
+    - task: Docker@2
+      displayName: 'Build Image'
+      inputs:
+        command: 'build'
+        Dockerfile: 'Bratislava2024/NeuroMedia.API/Dockerfile'
+        buildContext: 'Bratislava2024'
+        repository: '$(acrLoginServer)/$(acrRepository)'
+        tags: |
+          $(Build.BuildId)
+          $(Build.SourceVersion)
+
+    - task: trivy@2
+      displayName: 'Trivy Image Scan'
+      inputs:
+        version: '0.69.3'
+        type: 'image'
+        target: '$(acrLoginServer)/$(acrRepository):$(Build.BuildId)'
+        scanners: 'vuln,misconfig,secret'
+        severities: 'LOW,MEDIUM,MEDIUM,HIGH,CRITICAL'
+        failOnSeverityThreshold: 'HIGH'
+        reports: 'sarif'
+        publish: true
+
+    - task: Docker@2
+      displayName: 'Push to Azure Container Registry'
+      inputs:
+        command: 'push'
+        repository: '$(acrLoginServer)/$(acrRepository)'
+        tags: |
+          $(Build.BuildId)
+          $(Build.SourceVersion)
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+    - script: docker logout $(acrLoginServer)
+      displayName: 'Logout from ACR'
+      condition: always()
+
+  - job: DockerBuildScanUI
+    displayName: 'Build and Scan WebUI Docker Image'
+    steps:
+    - script: |
+        echo "$(acrPassword)" | docker login $(acrLoginServer) \
+          --username $(acrUsername) \
+          --password-stdin
+      displayName: 'Login to ACR'
+
+    - task: Docker@2
+      displayName: 'Build Image'
+      inputs:
+        command: 'build'
+        Dockerfile: 'Bratislava2024/NeuroMedia.WebUI/Dockerfile'
+        buildContext: 'Bratislava2024'
+        repository: '$(acrLoginServer)/$(acrRepositoryUI)'
+        tags: |
+          $(Build.BuildId)
+          $(Build.SourceVersion)
+
+    - task: trivy@2
+      displayName: 'Trivy Image Scan'
+      inputs:
+        version: '0.69.3'
+        type: 'image'
+        target: '$(acrLoginServer)/$(acrRepositoryUI):$(Build.BuildId)'
+        scanners: 'vuln,misconfig,secret'
+        severities: 'LOW,MEDIUM,MEDIUM,HIGH,CRITICAL'
+        failOnSeverityThreshold: 'HIGH'
+        reports: 'sarif'
+        publish: true
+
+    - task: Docker@2
+      displayName: 'Push to Azure Container Registry'
+      inputs:
+        command: 'push'
+        repository: '$(acrLoginServer)/$(acrRepositoryUI)'
+        tags: |
+          $(Build.BuildId)
+          $(Build.SourceVersion)
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+    - script: docker logout $(acrLoginServer)
+      displayName: 'Logout from ACR'
+      condition: always()

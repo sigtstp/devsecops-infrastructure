@@ -1,0 +1,312 @@
+trigger: none
+
+resources:
+  pipelines:
+  - pipeline: CI
+    source: 'webApp-CI'
+    trigger:
+      branches:
+        include:
+        - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+- group: $(VARIABLE_GROUP)
+- name: acrRepository
+  value: '$(ACR_REPOSITORY)'
+- name: acrRepositoryUI
+  value: '$(ACR_REPOSITORY_UI)'
+- name: imageTag
+  value: '$(resources.pipeline.CI.runID)'
+- name: webuiAppDev
+  value: '$(WEBUI_APP_DEV)'
+- name: apiAppDev
+  value: '$(API_APP_DEV)'
+- name: webuiAppStaging
+  value: '$(WEBUI_APP_STAGING)'
+- name: apiAppStaging
+  value: '$(API_APP_STAGING)'
+- name: webuiAppProd
+  value: '$(WEBUI_APP_PROD)'
+- name: apiAppProd
+  value: '$(API_APP_PROD)'
+- name: webUISolutionPath
+  value: '$(WEBUI_SOLUTION_PATH)'
+- name: zap-version
+  value: '2.17.0'
+
+
+stages:
+- stage: DeployDev
+  displayName: 'Deploy to Dev'
+  jobs:
+  - deployment: DeployWebUIDev
+    displayName: 'Deploy WebUI to Dev App Service'
+    environment: '$(ENV_DEV)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy WebUI → Dev App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(webuiAppDev)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepositoryUI):$(imageTag)'
+            
+          - task: AzureCLI@2
+            displayName: 'Tag deployed image as latest in ACR'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr import \
+                  --name "$ACR_NAME" \
+                  --source "$ACR_LOGIN_SERVER/$ACR_REPO:$IMAGE_TAG" \
+                  --image "$ACR_REPO:latest" \
+                  --force
+            env:
+              ACR_NAME: $(ACR_NAME)
+              ACR_LOGIN_SERVER: $(ACR_LOGIN_SERVER)
+              ACR_REPO: $(acrRepositoryUI)
+              IMAGE_TAG: $(imageTag)
+
+  - deployment: DeployAPIDev
+    displayName: 'Deploy API to Dev App Service'
+    environment: '$(ENV_DEV)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy API → Dev App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(apiAppDev)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepository):$(imageTag)'
+
+          - task: AzureCLI@2
+            displayName: 'Tag deployed image as latest in ACR'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr import \
+                  --name "$ACR_NAME" \
+                  --source "$ACR_LOGIN_SERVER/$ACR_REPO:$IMAGE_TAG" \
+                  --image "$ACR_REPO:latest" \
+                  --force
+            env:
+              ACR_NAME: $(ACR_NAME)
+              ACR_LOGIN_SERVER: $(ACR_LOGIN_SERVER)
+              ACR_REPO: $(acrRepository)
+              IMAGE_TAG: $(imageTag)
+
+- stage: DevDAST
+  displayName: 'DAST scan - Dev'
+  dependsOn: DeployDev
+  condition: succeeded()
+  jobs:
+  - job: ZAP
+    displayName: 'OWASP ZAP API Scan'
+    timeoutInMinutes: 30
+    steps:
+    - script: |
+        mkdir -p $(System.DefaultWorkingDirectory)/zap-reports/api-dev
+        chmod -R 777 $(System.DefaultWorkingDirectory)/zap-reports
+      displayName: 'Prepare report directory'
+
+    - script: |
+        docker run --rm \
+          -v $(System.DefaultWorkingDirectory)/zap-reports:/zap/wrk/:rw \
+          ghcr.io/zaproxy/zaproxy:$(zap-version) \
+          zap-api-scan.py \
+            -t $(DEV_APP_URL)/swagger/v1/swagger.json \
+            -f openapi \
+            -r zap-report.html \
+            -x zap-report.xml \
+      displayName: 'Run ZAP API Scan'
+      continueOnError: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish ZAP Report'
+      condition: always()
+      inputs:
+        PathtoPublish: '$(System.DefaultWorkingDirectory)/zap-reports'
+        ArtifactName: 'zap-dast-report-dev'
+
+- stage: DeployStaging
+  displayName: 'Deploy to Staging'
+  dependsOn: DevDAST
+  condition: succeeded()
+  jobs:
+  - deployment: DeployWebUIStaging
+    displayName: 'Deploy WebUI to Staging App Service'
+    environment: '$(ENV_STAGING)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy WebUI → Staging App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(webuiAppStaging)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepositoryUI):$(imageTag)'
+
+  - deployment: DeployAPIStaging
+    displayName: 'Deploy API to Staging App Service'
+    environment: '$(ENV_STAGING)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy API → Staging App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(apiAppStaging)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepository):$(imageTag)'
+
+- stage: DASTStaging
+  displayName: 'DAST Scan - Staging'
+  dependsOn: DeployStaging
+  condition: succeeded()
+  jobs:
+
+  - job: ZAPScanAPI
+    displayName: 'OWASP ZAP - API Scan'
+    timeoutInMinutes: 30
+    steps:
+
+    - script: |
+        mkdir -p $(System.DefaultWorkingDirectory)/zap-reports/api-staging
+        chmod -R 777 $(System.DefaultWorkingDirectory)/zap-reports
+      displayName: 'Prepare report directory (API)'
+
+    - script: |
+        docker run --rm \
+          -v $(System.DefaultWorkingDirectory)/zap/api-staging:/zap/wrk/:rw \
+          ghcr.io/zaproxy/zaproxy:$(zap-version) \
+          zap-api-scan.py \
+            -t $(STAGING_APP_URL)/swagger/v1/swagger.json \
+            -f openapi \
+            -r zap-report.html \
+            -x zap-report.xml
+      displayName: 'Run ZAP API Scan → WebApp'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish API Scan Report'
+      condition: always()
+      inputs:
+        pathToPublish: '$(System.DefaultWorkingDirectory)/zap/api-staging'
+        artifactName: 'zap-dast-api-staging'
+
+  - job: ZAPScanUI
+    displayName: 'OWASP ZAP - WebUI Full Scan'
+    timeoutInMinutes: 60
+    steps:
+
+    - script: |
+        mkdir -p $(System.DefaultWorkingDirectory)/zap-reports/ui-staging
+        chmod -R 777 $(System.DefaultWorkingDirectory)/zap-reports
+      displayName: 'Prepare report directory (UI)'
+
+    - script: |
+        docker run --rm \
+          -v $(System.DefaultWorkingDirectory)/zap-reports/ui:/zap/wrk/:rw \
+          ghcr.io/zaproxy/zaproxy:$(zap-version) \
+          zap-full-scan.py \
+            -t $(STAGING_UI_URL) \
+            -j \
+            -m 2 \
+            -r zap-report-ui.html \
+            -x zap-report-ui.xml
+      displayName: 'Run ZAP Full Scan → WebUI'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish UI Scan Report'
+      condition: always()
+      inputs:
+        pathToPublish: '$(System.DefaultWorkingDirectory)/zap-reports/ui-staging'
+        artifactName: 'zap-dast-ui-staging'
+
+- stage: DeployProd
+  displayName: 'Deploy to Production'
+  dependsOn: DASTStaging
+  condition: succeeded()
+  jobs:
+  - deployment: DeployWebUIProd
+    displayName: 'Deploy WebUI to Production App Service'
+    environment: '$(ENV_PROD)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy WebUI → Production App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(webuiAppProd)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepositoryUI):$(imageTag)'
+            
+          - task: AzureCLI@2
+            displayName: 'Tag deployed image as stable in ACR'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr import \
+                  --name "$ACR_NAME" \
+                  --source "$ACR_LOGIN_SERVER/$ACR_REPO:$IMAGE_TAG" \
+                  --image "$ACR_REPO:stable" \
+                  --force
+            env:
+              ACR_NAME: $(ACR_NAME)
+              ACR_LOGIN_SERVER: $(ACR_LOGIN_SERVER)
+              ACR_REPO: $(acrRepositoryUI)
+              IMAGE_TAG: $(imageTag)
+
+  - deployment: DeployAPIProd
+    displayName: 'Deploy API to Production App Service'
+    environment: '$(ENV_PROD)'
+    timeoutInMinutes: 15
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy API → Production App Service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              appName: '$(apiAppProd)'
+              containers: '$(ACR_LOGIN_SERVER)/$(acrRepository):$(imageTag)'
+
+          - task: AzureCLI@2
+            displayName: 'Tag deployed image as stable in ACR'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr import \
+                  --name "$ACR_NAME" \
+                  --source "$ACR_LOGIN_SERVER/$ACR_REPO:$IMAGE_TAG" \
+                  --image "$ACR_REPO:stable" \
+                  --force
+            env:
+              ACR_NAME: $(ACR_NAME)
+              ACR_LOGIN_SERVER: $(ACR_LOGIN_SERVER)
+              ACR_REPO: $(acrRepository)
+              IMAGE_TAG: $(imageTag)
+
