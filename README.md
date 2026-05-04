@@ -1,14 +1,13 @@
 # Azure Infrastructure
 
-This documentation provides insights and a step-by-step explanation on how to use and configure the Azure Infrastructure as Code (IaC) and Continuous Integration / Continuous Deployment (CI/CD) pipelines for the CerviLog project.
+This documentation provides insights and a step-by-step explanation on how to configure the Azure Infrastructure and Continuous Integration / Continuous Deployment (CI/CD) pipelines for the CerviLog project and any other application with similar architecture.
 
 ## Overview
-This IaC is designed specifically for the healthcare system CerviLog. The system comprises 3 main architectural layers: Presentation, Application, and Persistence. It must meet strict security requirements and integrate DevSecOps into its SDLC. This project manages the CI/CD pipelines and prepares the underlying, secure infrastructure ready for deployment using Terraform.
+This project is designed specifically for the healthcare system CerviLog. The system comprises 3 main architectural layers: Presentation, Application, and Persistence. It must meet strict security requirements and integrate DevSecOps into its SDLC. This project manages the CI/CD pipelines and prepares the underlying, secure infrastructure ready for deployment using Terraform.
 
 ## Project Structure
 - `iac/`: Contains the Terraform scripts organized by environment. For instance, the Dev environment configuration is located at `iac/environments/dev/`.
 - `pipelines/`: Contains the YAML definitions for Azure DevOps pipelines (CI/CD) encompassing building, testing, and deployment workflows.
-- `docs/`: Additional reference documentation and earlier manual drafts.
 
 ---
 
@@ -61,7 +60,7 @@ The underlying compute resources for hosting the Presentation and Application la
 ### 1.5. App Services (WebUI and API instances)
 You need to create separate App Services for the Frontend (WebUI) and Backend (API) across your required environments (Dev, Staging, Prod).
 
-*Repeat the following steps for each required App Service (e.g., `cervilog-webui-dev`, `dev-cervilog-stud`, etc.):*
+*Repeat the following steps for each required App Service (e.g., `webui-dev`, `api-dev`, etc.):*
 
 1. Navigate to **App Services** -> **Create** -> **Web App**.
 2. Select the `rg-cervilog-core` Resource Group.
