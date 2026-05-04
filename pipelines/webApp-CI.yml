@@ -1,3 +1,4 @@
+# Paths provided for triger and pr definition provide examples of definition.
 trigger:
   branches:
     include:
@@ -18,7 +19,7 @@ trigger:
     - Bratislava2024/NeuroMedia.Infrastructure.Tests/**
     - Bratislava2024/NeuroMedia.Persistence.Tests/**
     - Bratislava2024/NeuroMedia.WebUI.Tests/**
-    - Bratislava2024/azure-infrastructure/**
+    - Bratislava2024/devsecops-infrastructure/**
     exclude:
     - README.md
     - docs/**
@@ -46,7 +47,7 @@ pr:
     - Bratislava2024/NeuroMedia.Infrastructure.Tests/**
     - Bratislava2024/NeuroMedia.Persistence.Tests/**
     - Bratislava2024/NeuroMedia.WebUI.Tests/**
-    - Bratislava2024/azure-infrastructure/**
+    - Bratislava2024/devsecops-infrastructure/**
     exclude:
     - README.md
     - docs/**
@@ -56,23 +57,24 @@ pool:
   # name: 'cervilog-agents' # use for self-hosted agents
 
 variables:
+  # Configure pipeline variables and provide your values for empty variables
   # Build configuration variables 
   buildConfiguration: 'Release'
   dotnetVersion: '8.x'
-  solutionPath: 'Bratislava2024/NeuroMedia.sln'
+  solutionPath: 'Bratislava2024/NeuroMedia.sln' # Example format, adjust for specific project
 
   # Sonar Cloud configuration variables
-  sonarConnection: '$(SONAR_CONNECTION)'
-  sonarProjectKey: '$(SONAR_PROJECT_KEY)'
-  sonarProjectName: '$(SONAR_PROJECT_NAME)'
-  sonarOrganization: '$(SONAR_ORGANIZATION)'
+  sonarConnection: ''
+  sonarProjectKey: ''
+  sonarProjectName: ''
+  sonarOrganization: ''
 
   # ACR configuration variables
   acrLoginServer: '$(ACR_LOGIN_SERVER)'
   acrUsername: '$(ACR_USERNAME)'
   acrPassword: '$(ACR_PASSWORD)'
-  acrRepository: '$(ACR_REPOSITORY)'
-  acrRepositoryUI: '$(ACR_REPOSITORY_UI)'
+  acrRepository: ''
+  acrRepositoryUI: ''
 
 stages:
 - stage: Build
@@ -139,7 +141,7 @@ stages:
       displayName: 'Run Unit Tests'
       inputs:
         command: 'test'
-        projects: 'Bratislava2024/NeuroMedia.*.Tests/NeuroMedia.*.Tests.csproj'
+        projects: 'Bratislava2024/NeuroMedia.*.Tests/NeuroMedia.*.Tests.csproj' # Adjust for specific project
         arguments: '--configuration $(buildConfiguration) --logger trx --collect:"XPlat Code Coverage"'
 
     - task: PublishTestResults@2
@@ -181,7 +183,7 @@ stages:
         displayName: '.NET Vulnerable Packages Audit'
         inputs:
           command: 'custom'
-          projects: '$(Build.SourcesDirectory)/Bratislava2024/**/*.csproj'
+          projects: '$(Build.SourcesDirectory)/Bratislava2024/**/*.csproj' # Adjust for specific project
           custom: 'list'
           arguments: 'package --vulnerable --include-transitive'
         continueOnError: true # intentional — output is audit log only, Trivy enforces severity thresholds
@@ -191,7 +193,7 @@ stages:
         inputs:
           version: '0.69.3'
           type: 'filesystem'
-          target: '$(Build.SourcesDirectory)/Bratislava2024'
+          target: '$(Build.SourcesDirectory)/Bratislava2024' # Adjust for specific project
           scanners: 'vuln,misconfig,secret'
           severities: 'LOW,MEDIUM,HIGH,CRITICAL'
           failOnSeverityThreshold: 'HIGH'
@@ -204,7 +206,7 @@ stages:
         inputs:
           version: '0.69.3'
           type: 'filesystem'
-          target: '$(Build.SourcesDirectory)/azure-infrastructure'
+          target: '$(Build.SourcesDirectory)/devsecops-infrastructure'
           scanners: 'secret,vuln,misconfig'
           severities: 'LOW,MEDIUM,HIGH,CRITICAL'
           failOnSeverityThreshold: 'HIGH'
@@ -225,7 +227,7 @@ stages:
           --password-stdin
       displayName: 'Login to ACR'
 
-    - task: Docker@2
+    - task: Docker@2 # Adjust task configuration for specific project
       displayName: 'Build Image'
       inputs:
         command: 'build'
@@ -271,7 +273,7 @@ stages:
           --password-stdin
       displayName: 'Login to ACR'
 
-    - task: Docker@2
+    - task: Docker@2 # Adjust task configuration for specific project
       displayName: 'Build Image'
       inputs:
         command: 'build'

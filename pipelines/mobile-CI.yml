@@ -1,3 +1,4 @@
+# Paths provided for triger and pr definition provide examples of definition.
 trigger:
   branches:
     include:
@@ -39,17 +40,17 @@ pool:
   vmImage: 'windows-latest' # Windows required for MAUI
 
 variables:
+  # Configure pipeline variables and provide your values for empty variables
   # Build configuration variables 
   buildConfiguration: 'Release'
   dotnetVersion: '8.x'
-  solutionPath: 'Bratislava2024MobileApp/NeuroMediaMobileApp.sln'
-  buildArtifact: 'mobile-build'
+  solutionPath: 'Bratislava2024MobileApp/NeuroMediaMobileApp.sln' # Example format, adjust for specific project
 
   # Sonar Cloud configuration variables
-  sonarConnection: '$(SONAR_CONNECTION)'
-  sonarProjectKey: '$(SONAR_PROJECT_KEY)'
-  sonarProjectName: '$(SONAR_PROJECT_NAME)'
-  sonarOrganization: '$(SONAR_ORGANIZATION)'
+  sonarConnection: ''
+  sonarProjectKey: ''
+  sonarProjectName: ''
+  sonarOrganization: ''
 
 stages:
   - stage: Build
