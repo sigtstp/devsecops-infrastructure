@@ -1,14 +1,13 @@
-# DevSecOps Infrastructure
+# Azure Infrastructure
 
-This documentation provides insights and a step-by-step explanation on how to use and configure the Azure Infrastructure as Code (IaC) and Continuous Integration / Continuous Deployment (CI/CD) pipelines for the CerviLog project.
+This documentation provides insights and a step-by-step explanation on how to configure the Azure Infrastructure and Continuous Integration / Continuous Deployment (CI/CD) pipelines for the CerviLog project and any other application with similar architecture.
 
 ## Overview
-This IaC is designed specifically for the healthcare system CerviLog. The system comprises 3 main architectural layers: Presentation, Application, and Persistence. It must meet strict security requirements and integrate DevSecOps into its SDLC. This project manages the CI/CD pipelines and prepares the underlying, secure infrastructure ready for deployment using Terraform.
+This project is designed specifically for the healthcare system CerviLog. The system comprises 3 main architectural layers: Presentation, Application, and Persistence. It must meet strict security requirements and integrate DevSecOps into its SDLC. This project manages the CI/CD pipelines and prepares the underlying, secure infrastructure ready for deployment using Terraform.
 
 ## Project Structure
 - `iac/`: Contains the Terraform scripts organized by environment. For instance, the Dev environment configuration is located at `iac/environments/dev/`.
 - `pipelines/`: Contains the YAML definitions for Azure DevOps pipelines (CI/CD) encompassing building, testing, and deployment workflows.
-- `docs/`: Additional reference documentation and earlier manual drafts.
 
 ---
 
@@ -61,7 +60,7 @@ The underlying compute resources for hosting the Presentation and Application la
 ### 1.5. App Services (WebUI and API instances)
 You need to create separate App Services for the Frontend (WebUI) and Backend (API) across your required environments (Dev, Staging, Prod).
 
-*Repeat the following steps for each required App Service (e.g., `cervilog-webui-dev`, `dev-cervilog-stud`, etc.):*
+*Repeat the following steps for each required App Service (e.g., `webui-dev`, `api-dev`, etc.):*
 
 1. Navigate to **App Services** -> **Create** -> **Web App**.
 2. Select the `rg-cervilog-core` Resource Group.
@@ -124,50 +123,59 @@ Prior to running your pipeline, you need an Azure DevOps Pipeline Agent availabl
 
 ---
 
-## 3. Pipeline Variable Groups Configuration
+## 3. Environment Setup in Azure DevOps
+Before proceeding with next steps, ensure your environments are created on Azure DevOps. This allows team and management to audit individual deployments and manage policies for concrete stages. In `Pipelines > Environments` create new environments as follows:
 
-To execute the pipelines successfully without exposing secrets or hardcoding environment-specific values, configure the following Variable Groups in the Azure DevOps Library. Ensure these groups are linked to your pipelines.
+| Environment Name | Approval | Business hours | Reasoning |
+| :--- | :--- | :---: | :---: |
+| `dev` | Not required | Not required | Provides shared testable platform mirroring local environment. No need for approvals and business hours configuration. |
+| `staging` | Required | Not required | Provides testing platform (load tests, integration tests, test automation). Approvals are required = formally declare completeness of  feature implementation. Business hours configuration is not required - deployment does not affect end users. |
+| `prod` | Required | Required - configure your time window | Directly serves end users. Application is deployed when it passes full DAST and all previous security controls. Approvals are specifically required - represent warranty: security defects are not present, required features are implemented. Business hours configuration is required to avoid end user affection by temporary system unavailability. |
 
-### `cervilog-global-vars` (Global / Shared Configuration)
-Shared variables used across all pipelines.
+### 3.1 Additional information
+This environment configuration was designed for the CerviLog platform. Adjust this structure according to your project-specific requirements. Approvals and business hours are just recommended settings, align them with your business needs. DAST does not substitute manual Penetration Testing but rather serves as a last validation from development perspective. **Make sure that established processes align with your company policy and requirements.**
 
+---
+
+## 4. Pipeline Variable Configurations
+
+To execute the pipelines successfully without exposing secrets or hardcoding environment-specific values like URLs, follow these steps for each pipeline. Also make sure that defined paths i.e. for `pr` or `trigger` are defined for your specific project.
+
+### 4.1 `webApp-CD.yml`
+Create variable group `cd-vars` in `Pipelines > Library` on Azure DevOps and fill in following values:
 | Variable Name | Description | Secret? |
 | :--- | :--- | :---: |
-| `SONAR_CONNECTION` | The name of the Azure DevOps Service Connection for SonarCloud. | No |
-| `SONAR_ORGANIZATION` | The SonarCloud Organization name. | No |
-| `SONAR_PROJECT_KEY` | The primary SonarCloud project key (WebApp/Core). | No |
-| `SONAR_PROJECT_NAME` | The primary SonarCloud project name. | No |
-| `SONAR_API_PROJECT_KEY` | *(Optional)* Dedicated Sonar key for the Mobile API context. | No |
-| `SONAR_API_PROJECT_NAME` | *(Optional)* Dedicated Sonar name for the Mobile API context. | No |
-| `SONAR_TOKEN` | Token to authenticate API requests downloading Sonar reports. | **Yes** |
-| `AZURE_SERVICE_CONNECTION`| Azure Resource Manager (ARM) Service Connection name. | No |
-
-### `cervilog-acr-vars` (Container Registry Secrets & Config)
-Specifically for pipelines that build and push Docker images to the Azure Container Registry (ACR).
-
-| Variable Name | Description | Secret? |
-| :--- | :--- | :---: |
-| `ACR_NAME` | The base name of the ACR instance. | No |
-| `ACR_LOGIN_SERVER` | The full FQDN of the Azure Container Registry. | No |
+| `ACR_NAME` | The base name of the ACR instance. *(Used by `az acr` scripts in CD)* | No |
 | `ACR_USERNAME` | Service Principal or Admin username for ACR login. | No |
 | `ACR_PASSWORD` | Password or Service Principal secret for ACR. | **Yes** |
-| `ACR_REPOSITORY` | The repository name for the API/Backend container. | No |
-| `ACR_REPOSITORY_UI` | The repository name for the Frontend/UI container. | No |
-
-### `cervilog-cd-vars` (Continuous Deployment & Environment Config)
-Defines where containers are deployed and where DAST scans occur within `webApp-CD.yml`.
-
-| Variable Name | Description | Secret? |
-| :--- | :--- | :---: |
-| `ENV_DEV` | Name of the Development ADO Environment. | No |
-| `ENV_STAGING` | Name of the Staging ADO Environment. | No |
-| `ENV_PROD` | Name of the Production ADO Environment. | No |
-| `API_APP_DEV` | App Service name for the API in Dev. | No |
-| `WEBUI_APP_DEV` | App Service name for the UI in Dev. | No |
-| `API_APP_STAGING` | App Service name for the API in Staging. | No |
-| `WEBUI_APP_STAGING` | App Service name for the UI in Staging. | No |
-| `API_APP_PROD` | App Service name for the API in Prod. | No |
-| `WEBUI_APP_PROD` | App Service name for the UI in Prod. | No |
+| `ACR_LOGIN_SERVER` | The full FQDN of the Azure Container Registry. | No |
+| `AZURE_SERVICE_CONNECTION`| Azure Resource Manager (ARM) Service Connection name. | No |
 | `DEV_APP_URL` | Base URL used by ZAP scanner in Dev environment. | No |
 | `STAGING_APP_URL` | Base URL used by ZAP API scanner in Staging environment. | No |
 | `STAGING_UI_URL` | Base URL used by ZAP Full UI scanner in Staging environment.| No |
+
+Ensure you have linked this variable group to the webApp-CD pipeline and also declared as `- group: cd-vars` in the pipeline. Also verify other variable values present in this pipeline and adjust them according to your specific project.
+
+Review also stages of the pipeline and ensure your environment names are exactly the same as are defined for deployment steps.
+
+### 4.2 `webApp-CI.yml`
+Navigate to edit mode of this pipeline in Azure DevOps and enter Variables menu in top right corner. Create the following variables and fill in your values:
+
+| Variable Name | Description | Secret? |
+| :--- | :--- | :---: |
+| `ACR_USERNAME` | Service Principal or Admin username for ACR login. | No |
+| `ACR_PASSWORD` | Password or Service Principal secret for ACR. | **Yes** |
+| `ACR_LOGIN_SERVER` | The full FQDN of the Azure Container Registry. | No |
+| `SONAR_TOKEN` | The PAT from your configured SonarCloud. | **Yes** |
+
+Verify other variable values present in this pipeline and adjust them according to your specific project.
+
+---
+
+## 5. Future Work
+The current solution is validated on CerviLog project and represents the first prototype of modifiable and extensible DevSecOps infrastructure. To improve this design, following steps would be valuable:
+  - Improve DRY principle adherence by extracting repeated structure into standalone templates.
+  - Improve ease of setup extracting all possible pipeline variables into a variable group, keeping auditability in mind.
+  - Integrate Azure Key Vault for secure secrets handling instead of secret pipeline variables.
+  - Actual approach represents fundamental implementation of DevSecOps principles, but could be extended by rolling back to the last valid image in case of failed DAST tests (out of thesis scope).
+  - IaC definition was out of thesis scope. However, it would be beneficial to provide a bootstrap infrastructure for applications with an architecture similar to CerviLog, along with supporting scripts and infrastructure deployment automation.
