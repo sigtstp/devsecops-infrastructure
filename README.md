@@ -1,4 +1,4 @@
-# Azure Infrastructure
+# DevSecOps Infrastructure
 
 This documentation provides insights and a step-by-step explanation on how to configure the Azure Infrastructure and Continuous Integration / Continuous Deployment (CI/CD) pipelines for the CerviLog project and any other application with similar architecture.
 
